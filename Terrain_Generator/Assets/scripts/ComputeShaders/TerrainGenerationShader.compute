@@ -1,0 +1,386 @@
+#include "Utils.cginc"
+
+static float4 grass = float4(65.0f / 255, 152.0f / 255, 10.0f / 255, 1.0f);
+static float4 dirt = float4(70.0f / 255, 37.0f / 255, 10.0f / 255, 1.0f);
+static float4 rock = float4(136.0f / 255, 140.0f / 255, 141.0f / 255, 1.0f) * 0.6f;
+static float4 crystal = float4(0.8f, 0.8f, 0.0f, 2.0f);
+
+float wglnoise_mod(float x, float y)
+{
+    return x - y * floor(x / y);
+}
+
+float2 wglnoise_mod(float2 x, float2 y)
+{
+    return x - y * floor(x / y);
+}
+
+float3 wglnoise_mod(float3 x, float3 y)
+{
+    return x - y * floor(x / y);
+}
+
+float4 wglnoise_mod(float4 x, float4 y)
+{
+    return x - y * floor(x / y);
+}
+
+float2 wglnoise_fade(float2 t)
+{
+    return t * t * t * (t * (t * 6 - 15) + 10);
+}
+
+float3 wglnoise_fade(float3 t)
+{
+    return t * t * t * (t * (t * 6 - 15) + 10);
+}
+
+float wglnoise_mod289(float x)
+{
+    return x - floor(x / 289) * 289;
+}
+
+float2 wglnoise_mod289(float2 x)
+{
+    return x - floor(x / 289) * 289;
+}
+
+float3 wglnoise_mod289(float3 x)
+{
+    return x - floor(x / 289) * 289;
+}
+
+float4 wglnoise_mod289(float4 x)
+{
+    return x - floor(x / 289) * 289;
+}
+
+float3 wglnoise_permute(float3 x)
+{
+    return wglnoise_mod289((x * 34 + 1) * x);
+}
+
+float4 wglnoise_permute(float4 x)
+{
+    return wglnoise_mod289((x * 34 + 1) * x);
+}
+
+
+
+//perlin
+float3 SimplexNoiseGrad(float2 v)
+{
+    const float C1 = (3 - sqrt(3)) / 6;
+    const float C2 = (sqrt(3) - 1) / 2;
+
+    // First corner
+    float2 i  = floor(v + dot(v, C2));
+    float2 x0 = v -   i + dot(i, C1);
+
+    // Other corners
+    float2 i1 = x0.x > x0.y ? float2(1, 0) : float2(0, 1);
+    float2 x1 = x0 + C1 - i1;
+    float2 x2 = x0 + C1 * 2 - 1;
+
+    // Permutations
+    i = wglnoise_mod289(i); // Avoid truncation effects in permutation
+    float3 p = wglnoise_permute(    i.y + float3(0, i1.y, 1));
+           p = wglnoise_permute(p + i.x + float3(0, i1.x, 1));
+
+    // Gradients: 41 points uniformly over a unit circle.
+    // The ring size 17*17 = 289 is close to a multiple of 41 (41*7 = 287)
+    float3 phi = p / 41 * 3.14159265359 * 2;
+    float2 g0 = float2(cos(phi.x), sin(phi.x));
+    float2 g1 = float2(cos(phi.y), sin(phi.y));
+    float2 g2 = float2(cos(phi.z), sin(phi.z));
+
+    // Compute noise and gradient at P
+    float3 m  = float3(dot(x0, x0), dot(x1, x1), dot(x2, x2));
+    float3 px = float3(dot(g0, x0), dot(g1, x1), dot(g2, x2));
+
+    m = max(0.5 - m, 0);
+    float3 m3 = m * m * m;
+    float3 m4 = m * m3;
+
+    float3 temp = -8 * m3 * px;
+    float2 grad = m4.x * g0 + temp.x * x0 +
+                  m4.y * g1 + temp.y * x1 +
+                  m4.z * g2 + temp.z * x2;
+
+    return 99.2 * float3(grad, dot(m4, px));
+}
+
+float SimplexNoise(float2 v)
+{
+    return SimplexNoiseGrad(v).z;
+}
+
+//classic
+float ClassicNoise_impl(float2 pi0, float2 pf0, float2 pi1, float2 pf1)
+{
+    pi0 = wglnoise_mod289(pi0); // To avoid truncation effects in permutation
+    pi1 = wglnoise_mod289(pi1);
+
+    float4 ix = float2(pi0.x, pi1.x).xyxy;
+    float4 iy = float2(pi0.y, pi1.y).xxyy;
+    float4 fx = float2(pf0.x, pf1.x).xyxy;
+    float4 fy = float2(pf0.y, pf1.y).xxyy;
+
+    float4 i = wglnoise_permute(wglnoise_permute(ix) + iy);
+
+    float4 phi = i / 41 * 3.14159265359 * 2;
+    float2 g00 = float2(cos(phi.x), sin(phi.x));
+    float2 g10 = float2(cos(phi.y), sin(phi.y));
+    float2 g01 = float2(cos(phi.z), sin(phi.z));
+    float2 g11 = float2(cos(phi.w), sin(phi.w));
+
+    float n00 = dot(g00, float2(fx.x, fy.x));
+    float n10 = dot(g10, float2(fx.y, fy.y));
+    float n01 = dot(g01, float2(fx.z, fy.z));
+    float n11 = dot(g11, float2(fx.w, fy.w));
+
+    float2 fade_xy = wglnoise_fade(pf0);
+    float2 n_x = lerp(float2(n00, n01), float2(n10, n11), fade_xy.x);
+    float n_xy = lerp(n_x.x, n_x.y, fade_xy.y);
+    return 1.44 * n_xy;
+}
+
+// Classic Perlin noise
+float ClassicNoise(float2 p)
+{
+    float2 i = floor(p);
+    float2 f = frac(p);
+    return ClassicNoise_impl(i, f, i + 1, f - 1);
+}
+
+// Classic Perlin noise, periodic variant
+float PeriodicNoise(float2 p, float2 rep)
+{
+    float2 i0 = wglnoise_mod(floor(p), rep);
+    float2 i1 = wglnoise_mod(i0 + 1, rep);
+    float2 f = frac(p);
+    return ClassicNoise_impl(i0, f, i1, f - 1);
+}   
+
+float RidgedMulti(float2 p)
+{
+    float val = ClassicNoise(p);
+    // val = abs(2.0f*(val-0.5f));
+    val = abs(val);
+    val = 1.0f-val;
+    return val;
+}
+
+//fbm noise
+float random (float2 st) {
+    return frac(sin(dot(st.xy,
+                         float2(12.9898,78.233)))*
+        43758.5453123);
+}
+
+float noise (float2 st) {
+    float2 i = floor(st);
+    float2 f = frac(st);
+
+    // Four corners in 2D of a tile
+    float a = random(i);
+    float b = random(i + float2(1.0, 0.0));
+    float c = random(i + float2(0.0, 1.0));
+    float d = random(i + float2(1.0, 1.0));
+
+    float2 u = f * f * (3.0 - 2.0 * f);
+
+    return lerp(a, b, u.x) +
+            (c - a)* u.y * (1.0 - u.x) +
+            (d - b) * u.x * u.y;
+}
+
+#define OCTAVES 6
+float fbm (float2 st, float amp) {
+    // Initial values
+    float value = 0.0;
+    // float amplitude = .5;
+    // float frequency = 0.;
+    //
+    // Loop of octaves
+    for (int i = 0; i < OCTAVES; i++) {
+        value += amp * noise(st);
+        st *= 2.;
+        amp *= .5;
+    }
+    return value;
+}
+
+float nrand(float2 uv)
+{
+    return frac(sin(dot(uv, float2(12.9898, 78.233))) * 43758.5453);
+}
+
+float Gradient(float2 p)
+{
+    float pos = 1.0f - p.y;
+    if (pos < 0.0f) {return 0.0f;}
+    return pos;
+}
+
+float SetupLowgrounds(float2 p, float2 rp)
+{
+    float g = fbm(p, 0.5);
+    float val = Gradient(float2(p.x, p.y + g));
+    return val;
+}
+
+float SetupCaves(float2 p, float2 rp)
+{
+    float perturb_tunnels = fbm(p, 1.0f);
+
+    float tunnels = RidgedMulti(float2(p.x*1.0f+perturb_tunnels, p.y*1.5f)) - 0.20f;
+
+    float holes = SimplexNoise(1.0f * float2(p.x+perturb_tunnels, rp.y));
+
+    tunnels = 0.7f * tunnels * (1.0f - Gradient(-p*1.0f + float2(0.0f, 0.8f)));
+    holes = 0.7f * holes * (1.0f - Gradient(-p*0.28f + float2(0.0f, 0.7f)));;
+
+    float val = max(tunnels, holes);
+    return val;
+}
+
+float4 Setup(float2 p, float2 rp)
+{
+    float ground = SetupLowgrounds(p, rp);
+    // float r = ground;
+    float cave = SetupCaves(p, rp);
+    float r = min(ground, 1.0f - cave);
+
+    return float4(ground, cave, r, 0.0f);
+}
+
+float4 textures(float2 p, float2 rp, float delta) {
+    //float4 grass = float4(65.0f / 255, 152.0f / 255, 10.0f / 255, 1.0f);
+    //float4 dirt = float4(70.0f / 255, 37.0f / 255, 10.0f / 255, 1.0f);
+    //float4 rock = float4(136.0f / 255, 140.0f / 255, 141.0f / 255, 1.0f) * 0.6f;
+    //float4 crystal = float4(0.8f, 0.8f, 0.0f, 2.0f);
+
+    float4 layers = Setup(p, rp);
+
+    // return layers.z;
+
+    float4 xgrads = Setup(p + float2(delta, 0.0f), rp + float2(delta, 0.0f)) - Setup(p - float2(delta, 0.0f), rp - float2(delta, 0.0f));
+    float4 ygrads = Setup(p + float2(0.0f, delta), rp + float2(0.0f, delta)) - Setup(p - float2(0.0f, delta), rp - float2(0.0f, delta));
+    float2 rpos = float2((p.x * 0.1f), (p.y * 0.4f));
+    float rand = 40.f * nrand(rpos*0.1f) / 255; 
+    float4 grass_l = grass;
+    grass_l.x += rand;
+    grass_l.y += rand;
+    grass_l.z += rand;
+    // grass *= (1.0f-(layers.x*1.2f-0.5f));
+
+    bool empty = false;
+    float2 pos, posr;
+
+    for(int i = 0; i < 6; ++i) {
+        pos = p + float2(0.0f, i*delta);
+        posr = rp + float2(0.0f, i*delta);
+        if ( Setup(pos, posr).z < 0.5f) empty = true;
+    }
+    
+    if (layers.x > 0.5f && layers.z > 0.5f && layers.x < 0.6f && layers.z < 0.53f && empty) return float4(grass_l.xyz, 0.1f);
+
+    rand = fbm(rpos*100.f, 0.03f);
+    float4 dirt_l = dirt;
+    dirt_l.x += rand;
+    dirt_l.y += rand;
+    dirt_l.z += rand;
+    // dirt *= (1.0f-(layers.x*1.2f-0.5f));
+// *(1.0f-(layers.x*1.2f-0.5f))
+    if (layers.x < 1.5f && layers.x > 0.5f && layers.z > 0.5f) return float4(dirt_l.xyz, 0.2f);
+
+    float lower_dirt = fbm(rp*2.0f, 0.5f) * (1.7f-0.2f*Gradient(p + float2(0.0f, 1.0f)));
+
+    if (layers.x > 1.5f && layers.z > 0.5f && lower_dirt > 0.5f) return float4(dirt_l.xyz, 0.2f);
+    
+    // rand = fbm(float2(rpos.x*400.f, rpos.y*50.f), 0.06f, .5f);
+    rand = fbm(float2(rpos.x*150.f, rpos.y*30.0f), 0.2f);
+    float4 rock_l = rock;
+    rock_l.w = 1.0f;
+    rock_l.x += rand;
+    rock_l.y += rand;
+    rock_l.z += rand;
+    // rock *= (1.0f-(layers.x*1.2f-0.5f));
+
+    if (layers.x > 1.5f && layers.z > 0.5f && lower_dirt < 0.5f && lower_dirt > 0.4f) return float4(rock_l.xyz, 0.3f); 
+
+    float lower_rock = fbm(rp*7.0f, 0.6f) * (1.2f-0.30f*Gradient(p + float2(0.0f, 5.0f)));
+
+    if (layers.z > 0.5f && lower_rock > 0.5f) return float4(rock_l.xyz, 0.3f); 
+
+    float4 crystal_l = crystal; 
+    rand = 40.0f * noise(rpos * 1000.f) / 255; 
+    crystal_l.x += rand;
+    crystal_l.y += rand;
+    crystal_l.z += rand;
+    // crystal *= (1.0f-(layers.x*1.2f-0.5f));
+
+    if (layers.z > 0.5f)
+        return float4(crystal_l.xyz, 0.4f);
+    
+
+    return 0.f;
+}
+
+RWTexture2DArray<float4> CellTypes;
+RWTexture2DArray<float4> Pixels;
+
+float2 scale;
+float2 offset;
+
+#pragma kernel CreateMap
+[numthreads(8,8,1)]
+void CreateMap (uint3 id : SV_DispatchThreadID)
+{
+    float fResolution = float(resolution);
+
+    int2 current_chunk = int2(floor(id.x / resolution), - floor(id.y / resolution));
+
+    int2 realId = int2(id.x % resolution, id.y % resolution);
+    uint slice = getSliceFromChunks(current_chunk);
+
+    //Pixels[uint3(realId.x, realId.y, slice)] = float4(realId.x, realId.y, 1.0f, 1.0f);
+
+    float x = (realId.x / fResolution + offset.x + current_chunk.x - terrain_dims.x / 2) * scale.x;
+    float y = (realId.y / fResolution + offset.y + current_chunk.y) * scale.y;
+
+    float rpx = (realId.x / fResolution + current_chunk.x - terrain_dims.x / 2) * scale.x;
+    float rpy = (realId.y / fResolution + current_chunk.y) * scale.y;
+
+    float4 r = textures(float2(x,y), float2(rpx,rpy), scale.x / fResolution);
+    if (r.w < 0.01f)
+        r = 0.0f;
+
+
+    if (r.w == 0.1f)
+    {
+        CellTypes[uint3(realId.x, realId.y, slice)] = float4(0., 0., 0.0, 1.0);
+    }
+    else if (r.w == 0.2f)
+    {
+        CellTypes[uint3(realId.x, realId.y, slice)] = float4(0., 0., 0.0, 2.0);
+    }
+    else if (r.w == 0.3f)
+    {
+        CellTypes[uint3(realId.x, realId.y, slice)] = float4(0., 0., 0.0, 3.0);
+    }
+    else if (r.w == 0.4f)
+    {
+        CellTypes[uint3(realId.x, realId.y, slice)] = float4(0., 0., 0.0, 4.0);
+    }
+    else
+    {
+        CellTypes[uint3(realId.x, realId.y, slice)] = float4(0., 0., 0., 0.);
+    }
+    
+    if (r.w >= 0.1f)
+        Pixels[uint3(realId.x, realId.y, slice)] = float4(r.xyz, 1.0f);
+    else 
+        Pixels[uint3(realId.x, realId.y, slice)] = 0.0f;
+}
