@@ -1,0 +1,7 @@
+# Ignore everything in the Terrain_Generator folder
+Terrain_Generator/*
+
+# Except these folders
+!Terrain_Generator/Assets/
+!Terrain_Generator/Packages/
+!Terrain_Generator/ProjectSettings/
